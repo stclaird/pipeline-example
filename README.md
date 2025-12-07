@@ -30,8 +30,15 @@ UAT used to be deployed to for user and QA testing,
 PROD the final production environment that serves client traffic.
 
 ## Tooling
-Git and GitHub + Actions ,
-ArgoCD for Deployment
+
+| Tool | Purpose |
+|------|---------|
+| Git and GitHub Actions | Version control and CI/CD automation |
+| AWS IAM Assume Role | Keyless access for GitHub Actions |
+| ArgoCD | Deployment and GitOps |
+| Playwright | End-to-end acceptance testing |
+| Trivy | Static code and container security analysis |
+| ZAP Proxy | Network vulnerability scanning |
 
 ## Step 1.
 Developer will checkout the repo on their local machine.  Then create a branch from main.  They will add the changes/fixes to this branch via the the add/commit cycle.  Then push this branch to the git remote (e.g. GitHub). They may also make changes to the kubernetes manifest for the application by updating the HELM Chart.
@@ -58,7 +65,23 @@ Request a PR review from the appropriate team members who have the permissions t
 - Build Container Image.
 - Run a security scan  for the just created container image.
 - Package up a new helm version of the application chart using new version of container image.
-- Update ArgoCD App of App definition for this application use the new Helm chart on the CI TEST Environment.
+- On the CI Test Environment, update the App of Apps master application in ArgoCD to use this latest version.
 
+## Step 5a.
+- Run an E2E test using Playright.
+- Run a Performance test with K6 - compare the result to the previous or baseline result.
+- Run security scan against edge endpoints to find any vulnerabilities with Zap Proxy security scanner.
+
+## Step 6 (Optional)
+- On the UAT environment update ArgoCD app of Apps to deploy this version
+- Run an E2E test using a tool like playright.
+- Run a Performance test with K6 - compare the result to the previous or baseline result.
+- Allow QA to run any manual tests
+
+## Step 7
+- On the Production Environment, update the App of Apps master application in ArgoCD to use this latest version.
+- Run performance test with K6 to compare
 
 ![Entrac Pipelines](README-ASSETS/entrac-pipelines-steps-5-6-7.drawio.png)
+
+# RollBack
