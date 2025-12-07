@@ -1,0 +1,124 @@
+name: 'Create Semantic Tag from ECR'
+description: 'Retrieves the latest semantic version from ECR, increments it, and creates a new Git tag'
+author: 'stclaird'
+
+inputs:
+  increment:
+    description: 'Version increment type (patch, minor, or major)'
+    required: true
+    default: 'patch'
+  ecr-repository:
+    description: 'ECR repository name'
+    required: true
+  aws-region:
+    description: 'AWS region'
+    required: true
+  aws-role-arn:
+    description: 'AWS IAM role ARN for ECR access'
+    required: true
+  create-release:
+    description: 'Whether to create a GitHub release'
+    required: false
+    default: 'true'
+
+outputs:
+  version:
+    description: 'The new version number (without v prefix)'
+    value: ${{ steps.version.outputs.version }}
+  tag:
+    description: 'The new tag (with v prefix)'
+    value: ${{ steps.version.outputs.tag }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ inputs.aws-role-arn }}
+        aws-region: ${{ inputs.aws-region }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Get latest version from ECR and increment
+      id: version
+      shell: bash
+      env:
+        ECR_REPOSITORY: ${{ inputs.ecr-repository }}
+        INCREMENT_TYPE: ${{ inputs.increment }}
+      run: |
+        # Get all image tags from ECR
+        TAGS=$(aws ecr describe-images \
+          --repository-name $ECR_REPOSITORY \
+          --query 'sort_by(imageDetails,& imagePushedAt)[*].imageTags[*]' \
+          --output json | jq -r '.[][] | select(test("^v?[0-9]+\\.[0-9]+\\.[0-9]+$"))')
+
+        # Find the latest semantic version
+        LATEST_VERSION="0.0.0"
+
+        if [ -n "$TAGS" ]; then
+          # Remove 'v' prefix if present and sort
+          LATEST_VERSION=$(echo "$TAGS" | sed 's/^v//' | sort -V | tail -n1)
+          echo "Latest version found in ECR: $LATEST_VERSION"
+        else
+          echo "No semantic version tags found in ECR, starting from 0.0.0"
+        fi
+
+        # Parse version components
+        IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
+
+        # Increment based on input
+        case "$INCREMENT_TYPE" in
+          major)
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+            ;;
+          minor)
+            MINOR=$((MINOR + 1))
+            PATCH=0
+            ;;
+          patch)
+            PATCH=$((PATCH + 1))
+            ;;
+        esac
+
+        NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+        echo "New version: v$NEW_VERSION"
+
+        # Set outputs
+        echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+        echo "tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
+
+    - name: Create and push tag
+      shell: bash
+      env:
+        NEW_TAG: ${{ steps.version.outputs.tag }}
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+
+        # Create annotated tag
+        git tag -a "$NEW_TAG" -m "Release $NEW_TAG"
+
+        # Push tag to repository
+        git push origin "$NEW_TAG"
+
+        echo "✅ Created and pushed tag: $NEW_TAG"
+
+    - name: Create GitHub Release
+      if: inputs.create-release == 'true'
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      with:
+        tag_name: ${{ steps.version.outputs.tag }}
+        release_name: Release ${{ steps.version.outputs.tag }}
+        body: |
+          Automated release ${{ steps.version.outputs.tag }}
+
+          Incremented from ECR version using ${{ inputs.increment }} increment.
+        draft: false
+        prerelease: false

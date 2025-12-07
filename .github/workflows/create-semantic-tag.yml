@@ -1,0 +1,36 @@
+name: Create Semantic Tag
+
+on:
+    workflow_dispatch:
+        inputs:
+            increment:
+                description: "Version increment type"
+                required: true
+                default: "patch"
+                type: choice
+                options:
+                    - patch
+                    - minor
+                    - major
+
+jobs:
+    create-tag:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+            id-token: write
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Create semantic tag from ECR
+              uses: ./.github/actions/create-semantic-tag
+              with:
+                  increment: ${{ github.event.inputs.increment }}
+                  ecr-repository: ${{ secrets.ECR_REPOSITORY }}
+                  aws-region: ${{ secrets.AWS_REGION }}
+                  aws-role-arn: ${{ secrets.AWS_ROLE_ARN }}
+                  create-release: "true"
