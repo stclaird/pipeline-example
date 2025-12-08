@@ -1,0 +1,45 @@
+# UAT Environment overrides
+replicaCount: 2
+
+image:
+  tag: "v1.0.0"  # Updated by pipeline
+
+ingress:
+  enabled: true
+  hosts:
+    - host: car-lookup-uat.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: car-lookup-uat-tls
+      hosts:
+        - car-lookup-uat.example.com
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+
+env:
+  - name: DATABASE_URL
+    valueFrom:
+      secretKeyRef:
+        name: car-lookup-secrets
+        key: database-url
+  - name: ENVIRONMENT
+    value: "uat"
+  - name: LOG_LEVEL
+    value: "INFO"
+
+dopplerSecret:
+  enabled: true
+  project: car-lookup-service
+  config: uat
+  secretName: car-lookup-secrets

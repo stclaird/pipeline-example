@@ -1,0 +1,5 @@
+apiVersion: v2
+name: app-of-apps
+description: App of Apps pattern for managing car-lookup-service across environments
+type: application
+version: 0.1.0

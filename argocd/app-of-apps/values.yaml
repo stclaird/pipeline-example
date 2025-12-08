@@ -1,0 +1,26 @@
+# Default values for app-of-apps
+repoURL: https://github.com/stclaird/pipeline-example.git
+targetRevision: main
+
+# Environment configuration
+env: ci
+
+# Application version - updated by CI/CD pipeline
+appVersion: v1.0.0
+
+# ArgoCD project
+project: default
+
+# Sync policy
+syncPolicy:
+  automated:
+    prune: true
+    selfHeal: true
+  syncOptions:
+    - CreateNamespace=true
+
+# Namespace configuration
+namespace:
+  ci: car-lookup-ci
+  uat: car-lookup-uat
+  prod: car-lookup-prod

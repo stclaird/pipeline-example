@@ -42,6 +42,7 @@ async def startup_event():
 async def root():
     """Root endpoint"""
     return {
+        "message": "Joose Car Lookup Service",
         "service": "Joose Car Lookup Service",
         "status": "running",
         "version": "1.0.0"

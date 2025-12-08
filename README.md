@@ -66,6 +66,11 @@ Request a PR review from the appropriate team members who have the permissions t
 - Run a security scan  for the just created container image.
 - Package up a new helm version of the application chart using new version of container image.
 - On the CI Test Environment, update the App of Apps master application in ArgoCD to use this latest version.
+```
+# Update the appVersion parameter in ArgoCD
+kubectl patch application apps-ci -n argocd --type merge \
+  -p '{"spec":{"source":{"helm":{"parameters":[{"name":"appVersion","value":"v1.2.3"}]}}}}'
+```
 
 ## Step 5a.
 - Run an E2E test using Playright.

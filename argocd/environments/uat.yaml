@@ -1,0 +1,32 @@
+# App of Apps - UAT Environment
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: apps-uat
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/stclaird/pipeline-example.git
+    targetRevision: main
+    path: argocd/app-of-apps
+    helm:
+      parameters:
+        - name: env
+          value: uat
+        - name: appVersion
+          value: v1.0.0
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
