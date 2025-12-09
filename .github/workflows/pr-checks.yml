@@ -1,4 +1,4 @@
-name: Gate 1 - PR Quality Checks
+name: PR Quality Checks
 
 on:
   pull_request:
