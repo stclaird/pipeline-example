@@ -1,4 +1,4 @@
-name: Deploy Car Lookup Service to CI
+name: Deploy Car Lookup Service
 
 on:
   push:
