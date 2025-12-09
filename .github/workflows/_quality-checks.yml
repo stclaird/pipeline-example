@@ -1,0 +1,115 @@
+name: Reusable Quality Checks
+
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        description: 'Name of the application directory (e.g., car-lookup-service)'
+        required: true
+        type: string
+      app-path:
+        description: 'Path to the application directory (defaults to app-name)'
+        required: false
+        type: string
+        default: ''
+      python-version:
+        description: 'Python version to use'
+        required: false
+        type: string
+        default: '3.11'
+      skip-tests:
+        description: 'Skip running tests'
+        required: false
+        type: boolean
+        default: false
+      skip-security-scan:
+        description: 'Skip security scanning'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  lint-and-test:
+    name: Lint and Test - ${{ inputs.app-name }}
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        working-directory: ./${{ inputs.app-path || inputs.app-name }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: "pip"
+          cache-dependency-path: "${{ inputs.app-path || inputs.app-name }}/requirements.txt"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff pytest pytest-cov pytest-asyncio httpx
+
+      - name: Run Ruff linter
+        run: |
+          echo "Running Ruff linter on ${{ inputs.app-name }}..."
+          ruff check . --output-format=github
+
+      - name: Run Ruff formatter check
+        run: |
+          echo "Checking code formatting on ${{ inputs.app-name }}..."
+          ruff format --check .
+
+      - name: Run unit tests
+        if: ${{ !inputs.skip-tests }}
+        run: |
+          echo "Running unit tests on ${{ inputs.app-name }}..."
+          pytest --cov=app --cov-report=term-missing --cov-report=xml --cov-report=html -v
+
+      - name: Upload coverage reports
+        if: ${{ !inputs.skip-tests }}
+        uses: codecov/codecov-action@v4
+        continue-on-error: true
+        with:
+          file: ./${{ inputs.app-path || inputs.app-name }}/coverage.xml
+          flags: ${{ inputs.app-name }}
+          name: codecov-${{ inputs.app-name }}
+          fail_ci_if_error: false
+
+  security-scan:
+    name: Security Scan - ${{ inputs.app-name }}
+    runs-on: ubuntu-latest
+    if: ${{ !inputs.skip-security-scan }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner in fs mode
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "./${{ inputs.app-path || inputs.app-name }}"
+          format: "sarif"
+          output: "trivy-results-${{ inputs.app-name }}.sarif"
+          severity: "CRITICAL,HIGH,MEDIUM"
+
+      - name: Upload Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-results-${{ inputs.app-name }}.sarif"
+          category: "trivy-${{ inputs.app-name }}"
+
+      - name: Run Trivy vulnerability scanner (table output)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "./${{ inputs.app-path || inputs.app-name }}"
+          format: "table"
+          severity: "CRITICAL,HIGH,MEDIUM"
+          exit-code: "1"

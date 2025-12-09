@@ -1,0 +1,41 @@
+name: Gate 2 - Deploy Car Lookup Service to CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/car-lookup-service/**"
+      - ".github/workflows/deploy.yml"
+      - ".github/workflows/_build.yml"
+      - ".github/workflows/_deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  security-events: write
+
+jobs:
+  build-car-lookup-service:
+    name: Build Car Lookup Service
+    uses: ./.github/workflows/_build.yml
+    secrets:
+      DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+    with:
+      app-name: car-lookup-service
+      app-path: apps/car-lookup-service
+      increment: patch
+
+  deploy-car-lookup-service:
+    name: Deploy Car Lookup Service to CI
+    needs: build-car-lookup-service
+    uses: ./.github/workflows/_deploy.yml
+    secrets:
+      DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+    with:
+      app-name: car-lookup-service
+      version: ${{ needs.build-car-lookup-service.outputs.tag }}
+      environment: ci
