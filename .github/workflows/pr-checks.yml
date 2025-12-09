@@ -1,0 +1,103 @@
+name: Gate 1 - PR Quality Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  detect-changes:
+    name: Detect Changed Applications
+    runs-on: ubuntu-latest
+    outputs:
+      car-lookup-service: ${{ steps.filter.outputs.car-lookup-service }}
+      # Add more apps here as needed
+      # payment-service: ${{ steps.filter.outputs.payment-service }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            car-lookup-service:
+              - 'apps/car-lookup-service/**'
+            # Add more apps here as needed
+            # payment-service:
+            #   - 'apps/payment-service/**'
+
+  car-lookup-service:
+    name: Car Lookup Service
+    needs: detect-changes
+    if: needs.detect-changes.outputs.car-lookup-service == 'true'
+    uses: ./.github/workflows/_quality-checks.yml
+    secrets:
+      DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+    with:
+      app-name: car-lookup-service
+      app-path: apps/car-lookup-service
+      python-version: "3.11"
+
+  # Example: Add more services here
+  # Charger-service:
+  #   name: Charger Service
+  #   needs: detect-changes
+  #   if: needs.detect-changes.outputs.charger-service == 'true'
+  #   uses: ./.github/workflows/_quality-checks.yml
+  #   with:
+  #     app-name: charger-service
+  #     app-path: apps/charger-service
+  #     python-version: '3.11'
+
+  summary:
+    name: Quality Check Summary
+    runs-on: ubuntu-latest
+    needs: [detect-changes, car-lookup-service]
+    # Add more app jobs to needs array: [detect-changes, car-lookup-service, payment-service]
+    if: always()
+
+    steps:
+      - name: Check results
+        run: |
+          echo "📊 Quality Check Results Summary"
+          echo "================================"
+
+          HAS_FAILURES=false
+
+          # Check car-lookup-service
+          if [[ "${{ needs.detect-changes.outputs.car-lookup-service }}" == "true" ]]; then
+            if [[ "${{ needs.car-lookup-service.result }}" == "success" ]]; then
+              echo "✅ car-lookup-service: PASSED"
+            elif [[ "${{ needs.car-lookup-service.result }}" == "failure" ]]; then
+              echo "❌ car-lookup-service: FAILED"
+              HAS_FAILURES=true
+            else
+              echo "⏭️  car-lookup-service: ${{ needs.car-lookup-service.result }}"
+            fi
+          fi
+
+          # Add more apps here
+          # if [[ "${{ needs.detect-changes.outputs.payment-service }}" == "true" ]]; then
+          #   if [[ "${{ needs.payment-service.result }}" == "success" ]]; then
+          #     echo "✅ payment-service: PASSED"
+          #   elif [[ "${{ needs.payment-service.result }}" == "failure" ]]; then
+          #     echo "❌ payment-service: FAILED"
+          #     HAS_FAILURES=true
+          #   fi
+          # fi
+
+          echo ""
+
+          if [[ "$HAS_FAILURES" == "true" ]]; then
+            echo "❌ Quality checks failed - PR cannot be merged"
+            exit 1
+          elif [[ "${{ needs.detect-changes.outputs.car-lookup-service }}" == "false" ]]; then
+            echo "ℹ️  No application changes detected - skipping quality checks"
+            exit 0
+          else
+            echo "✅ All quality checks passed - PR ready for review"
+          fi

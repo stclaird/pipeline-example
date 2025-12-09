@@ -1,0 +1,41 @@
+name: Gate 2 - Deploy Charger Service to CI
+
+on:
+    push:
+        branches:
+            - main
+        paths:
+            - "apps/charger-service/**"
+            - ".github/workflows/charger-service.yml"
+            - ".github/workflows/_build.yml"
+            - ".github/workflows/_deploy.yml"
+    workflow_dispatch:
+
+permissions:
+    contents: write
+    id-token: write
+    security-events: write
+
+jobs:
+    build-charger-service:
+        name: Build Charger Service
+        uses: ./.github/workflows/_build.yml
+        secrets:
+            DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+            AWS_REGION: ${{ secrets.AWS_REGION }}
+            AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+        with:
+            app-name: charger-service
+            app-path: apps/charger-service
+            increment: patch
+
+    deploy-charger-service-ci:
+        name: Deploy Charger Service to CI TEST
+        needs: build-charger-service
+        uses: ./.github/workflows/_deploy.yml
+        secrets:
+            DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+        with:
+            app-name: charger-service
+            version: ${{ needs.build-charger-service.outputs.tag }}
+            environment: ci

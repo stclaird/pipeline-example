@@ -4,38 +4,40 @@ on:
   workflow_call:
     inputs:
       app-name:
-        description: 'Name of the application directory (e.g., car-lookup-service)'
+        description: "Name of the application directory (e.g., car-lookup-service)"
         required: true
         type: string
       app-path:
-        description: 'Path to the application directory (defaults to app-name)'
-        required: false
+        description: "Path to the application directory"
+        required: true
         type: string
-        default: ''
       python-version:
-        description: 'Python version to use'
+        description: "Python version to use"
         required: false
         type: string
-        default: '3.11'
+        default: "3.11"
       skip-tests:
-        description: 'Skip running tests'
+        description: "Skip running tests"
         required: false
         type: boolean
         default: false
       skip-security-scan:
-        description: 'Skip security scanning'
+        description: "Skip security scanning"
         required: false
         type: boolean
         default: false
+    secrets:
+      DATADOG_API_KEY:
+        required: false
 
 jobs:
   lint-and-test:
     name: Lint and Test - ${{ inputs.app-name }}
     runs-on: ubuntu-latest
-    
+
     defaults:
       run:
-        working-directory: ./${{ inputs.app-path || inputs.app-name }}
+        working-directory: ./${{ inputs.app-path }}
 
     steps:
       - name: Checkout code
@@ -46,7 +48,7 @@ jobs:
         with:
           python-version: ${{ inputs.python-version }}
           cache: "pip"
-          cache-dependency-path: "${{ inputs.app-path || inputs.app-name }}/requirements.txt"
+          cache-dependency-path: "${{ inputs.app-path }}/requirements.txt"
 
       - name: Install dependencies
         run: |
@@ -75,10 +77,21 @@ jobs:
         uses: codecov/codecov-action@v4
         continue-on-error: true
         with:
-          file: ./${{ inputs.app-path || inputs.app-name }}/coverage.xml
+          file: ./${{ inputs.app-path }}/coverage.xml
           flags: ${{ inputs.app-name }}
           name: codecov-${{ inputs.app-name }}
           fail_ci_if_error: false
+
+      - name: Install datadog-ci
+        if: ${{ !inputs.skip-tests }}
+        run: npm install -g @datadog/datadog-ci
+
+      - name: Tag pipeline in Datadog
+        if: ${{ !inputs.skip-tests }}
+        run: datadog-ci tag --level pipeline --tags service:${{ inputs.app-name }} --tags pipeline-type:quality-checks --tags test-coverage:${{ steps.coverage.outputs.total }}
+        env:
+          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+        continue-on-error: true
 
   security-scan:
     name: Security Scan - ${{ inputs.app-name }}
@@ -93,7 +106,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: "fs"
-          scan-ref: "./${{ inputs.app-path || inputs.app-name }}"
+          scan-ref: "./${{ inputs.app-path }}"
           format: "sarif"
           output: "trivy-results-${{ inputs.app-name }}.sarif"
           severity: "CRITICAL,HIGH,MEDIUM"
@@ -109,7 +122,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: "fs"
-          scan-ref: "./${{ inputs.app-path || inputs.app-name }}"
+          scan-ref: "./${{ inputs.app-path }}"
           format: "table"
           severity: "CRITICAL,HIGH,MEDIUM"
           exit-code: "1"

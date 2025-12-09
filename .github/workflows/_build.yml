@@ -1,0 +1,214 @@
+name: Reusable Build Pipeline
+
+on:
+    workflow_call:
+        inputs:
+            app-name:
+                description: "Name of the application (e.g., car-lookup-service)"
+                required: true
+                type: string
+            app-path:
+                description: "Path to the application directory"
+                required: true
+                type: string
+            increment:
+                description: "Version increment type (patch, minor, major)"
+                required: false
+                type: string
+                default: "patch"
+        secrets:
+            DATADOG_API_KEY:
+                required: true
+            AWS_REGION:
+                required: true
+            AWS_ROLE_ARN:
+                required: true
+
+        outputs:
+            version:
+                description: "The created version"
+                value: ${{ jobs.create-version.outputs.version }}
+            tag:
+                description: "The created tag"
+                value: ${{ jobs.create-version.outputs.tag }}
+            image-uri:
+                description: "The container image URI"
+                value: ${{ jobs.build-and-push.outputs.image-uri }}
+            helm-chart-version:
+                description: "The Helm chart version"
+                value: ${{ jobs.package-helm-chart.outputs.chart-version }}
+
+jobs:
+    create-version:
+        name: Create Semantic Version
+        runs-on: ubuntu-latest
+        outputs:
+            version: ${{ steps.semantic-tag.outputs.version }}
+            tag: ${{ steps.semantic-tag.outputs.tag }}
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Create semantic tag from ECR
+              id: semantic-tag
+              uses: ./.github/actions/create-semantic-tag
+              with:
+                  increment: ${{ inputs.increment }}
+                  ecr-repository: ${{ inputs.app-name }}
+                  aws-region: ${{ secrets.AWS_REGION }}
+                  aws-role-arn: ${{ secrets.AWS_ROLE_ARN }}
+                  create-release: "true"
+
+            - name: Output version
+              run: |
+                  echo "🏷️  Created version: ${{ steps.semantic-tag.outputs.tag }}"
+                  echo "Version number: ${{ steps.semantic-tag.outputs.version }}"
+
+            - name: Install datadog-ci
+              run: npm install -g @datadog/datadog-ci
+
+            - name: Tag pipeline in Datadog
+              run: datadog-ci tag --level pipeline --tags service:${{ inputs.app-name }} --tags pipeline-type:build --tags version:${{ steps.semantic-tag.outputs.tag }}
+              env:
+                  DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+
+    build-and-push:
+        name: Build and Push Container
+        runs-on: ubuntu-latest
+        needs: create-version
+        outputs:
+            image-uri: ${{ steps.build.outputs.image-uri }}
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@v4
+              with:
+                  role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+                  aws-region: ${{ secrets.AWS_REGION }}
+
+            - name: Login to Amazon ECR
+              id: login-ecr
+              uses: aws-actions/amazon-ecr-login@v2
+
+            - name: Build, tag, and push image
+              id: build
+              env:
+                  ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+                  ECR_REPOSITORY: ${{ inputs.app-name }}
+                  IMAGE_TAG: ${{ needs.create-version.outputs.tag }}
+              run: |
+                  cd ${{ inputs.app-path }}
+
+                  # Build the Docker image
+                  docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+                  docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+                  # Push the image
+                  docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+                  docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+                  # Set output
+                  IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+                  echo "image-uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+
+                  echo "Built and pushed: $IMAGE_URI"
+
+            - name: Run Trivy vulnerability scanner on image
+              uses: aquasecurity/trivy-action@master
+              with:
+                  image-ref: ${{ steps.build.outputs.image-uri }}
+                  format: "sarif"
+                  output: "trivy-image-results.sarif"
+                  severity: "CRITICAL,HIGH"
+
+            - name: Upload Trivy results to GitHub Security
+              uses: github/codeql-action/upload-sarif@v3
+              if: always()
+              with:
+                  sarif_file: "trivy-image-results.sarif"
+                  category: "trivy-${{ inputs.app-name }}-container"
+
+            - name: Run Trivy scanner (table output)
+              uses: aquasecurity/trivy-action@master
+              with:
+                  image-ref: ${{ steps.build.outputs.image-uri }}
+                  format: "table"
+                  severity: "CRITICAL,HIGH"
+                  exit-code: "1"
+
+    package-helm-chart:
+        name: Package Helm Chart
+        runs-on: ubuntu-latest
+        needs: create-version
+        outputs:
+            chart-version: ${{ steps.package.outputs.chart-version }}
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Install Helm
+              uses: azure/setup-helm@v4
+              with:
+                  version: "3.13.0"
+
+            - name: Update Chart.yaml version
+              env:
+                  VERSION: ${{ needs.create-version.outputs.version }}
+                  APP_NAME: ${{ inputs.app-name }}
+              run: |
+                  # Update the Helm chart version to match the app version
+                  yq eval ".version = \"$VERSION\"" -i helm/$APP_NAME/Chart.yaml
+                  yq eval ".appVersion = \"$VERSION\"" -i helm/$APP_NAME/Chart.yaml
+
+                  echo "📦 Updated Helm chart to version $VERSION"
+                  cat helm/$APP_NAME/Chart.yaml
+
+            - name: Package Helm chart
+              id: package
+              env:
+                  VERSION: ${{ needs.create-version.outputs.version }}
+                  APP_NAME: ${{ inputs.app-name }}
+              run: |
+                  # Package the Helm chart
+                  helm package helm/$APP_NAME --version $VERSION --app-version $VERSION
+
+                  CHART_FILE="${APP_NAME}-${VERSION}.tgz"
+                  echo "chart-version=$VERSION" >> $GITHUB_OUTPUT
+
+                  echo "Packaged Helm chart: $CHART_FILE"
+                  ls -lh *.tgz
+
+            - name: Configure AWS credentials for Helm push
+              uses: aws-actions/configure-aws-credentials@v4
+              with:
+                  role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+                  aws-region: ${{ secrets.AWS_REGION }}
+
+            - name: Login to Amazon ECR
+              id: login-ecr-helm
+              uses: aws-actions/amazon-ecr-login@v2
+
+            - name: Push Helm chart to ECR
+              env:
+                  VERSION: ${{ needs.create-version.outputs.version }}
+                  APP_NAME: ${{ inputs.app-name }}
+                  ECR_REGISTRY: ${{ steps.login-ecr-helm.outputs.registry }}
+              run: |
+                  # Push Helm chart to ECR as OCI artifact
+                  helm push ${APP_NAME}-${VERSION}.tgz oci://${ECR_REGISTRY}
+
+                  echo "✅ Pushed Helm chart to oci://${ECR_REGISTRY}/${APP_NAME}:${VERSION}"
+
+            - name: Upload Helm chart artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: helm-chart-${{ inputs.app-name }}
+                  path: "*.tgz"
+                  retention-days: 30

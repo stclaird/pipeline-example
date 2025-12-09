@@ -23,7 +23,7 @@ To allow for this to work several gates are needed:
 
 # Methodology
 ## Environments
-CI/TEST used for Deploying code during the pipelines. This is where the end to end acceptance tests are run on.
+CI/TEST used for Deploying code during the pipelines. This is the environment the end to end acceptance tests are run on.
 
 UAT used to be deployed to for user and QA testing,
 

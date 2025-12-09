@@ -1,0 +1,39 @@
+name: Manual Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      app-name:
+        description: 'Application to rollback (e.g., car-lookup-service)'
+        required: true
+        type: choice
+        options:
+          - car-lookup-service
+          - charger-service
+      version:
+        description: 'Version to rollback to (e.g., v1.2.3)'
+        required: true
+        type: string
+      environment:
+        description: 'Environment to rollback'
+        required: true
+        type: choice
+        options:
+          - ci
+          - uat
+          - prod
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  rollback:
+    name: Rollback ${{ inputs.app-name }} to ${{ inputs.version }}
+    uses: ./.github/workflows/_deploy.yml
+    secrets:
+      DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+    with:
+      app-name: ${{ inputs.app-name }}
+      version: ${{ inputs.version }}
+      environment: ${{ inputs.environment }}
